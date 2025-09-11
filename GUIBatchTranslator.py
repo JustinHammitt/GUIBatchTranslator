@@ -2,16 +2,12 @@ import os
 import sys
 import shutil
 import traceback
-import openpyxl
-import xlrd
-from xlrd.xldate import xldate_as_datetime
 from pathlib import Path
 
 from PyQt5 import QtCore, QtWidgets
 # Argos core + file helper
 import argostranslate.translate as T
 from argostranslate.package import install_from_path
-from argostranslatefiles import argostranslatefiles as AF
 from PyQt5 import QtCore, QtWidgets
 
 class _PathInstallWorker(QtCore.QObject):
@@ -233,6 +229,7 @@ def translate_text_pivot(to_en, en_to, text: str) -> str:
     return en_to.translate(to_en.translate(text))
     
 def _translate_xlsx_file(in_path, out_dir, tr, to_en, en_to):
+    import openpyxl  # lazy import
     wb = openpyxl.load_workbook(in_path)
     for ws in wb.worksheets:
         for row in ws.iter_rows():
@@ -253,7 +250,10 @@ def _translate_xlsx_file(in_path, out_dir, tr, to_en, en_to):
     return str(out)
 
 def _translate_xls_file_to_xlsx(in_path, out_dir, tr, to_en, en_to):
+    import xlrd
+    from xlrd.xldate import xldate_as_datetime
     book = xlrd.open_workbook(in_path)
+    import openyxl
     out_wb = openpyxl.Workbook()
     # Remove default sheet if we will create our own
     if out_wb.worksheets:
@@ -318,6 +318,7 @@ def translate_with_optional_pivot(in_path, src_code, dst_code, out_dir):
         return translate_excel_file(in_path, src_code, dst_code, out_dir)
 
     # Non-Excel → use argos-translate-files
+    from argostranslatefiles import argostranslatefiles as AF
     tr = get_translation_or_none(src_code, dst_code)
     if tr:
         out_path = AF.translate_file(tr, str(in_path))
@@ -482,9 +483,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.run_btn.clicked.connect(self.start_run)
         self.cancel_btn.clicked.connect(self.cancel_run)
 
-        # First-run: install any bundled models then populate languages
-        ensure_bundled_models_installed(self)
-        self.populate_languages()
+        # First-run: defer heavy work so the window shows instantly
+        QtCore.QTimer.singleShot(0, lambda: (ensure_bundled_models_installed(self), self.populate_languages()))
+
 
     def populate_languages(self):
         self.src_combo.clear()
