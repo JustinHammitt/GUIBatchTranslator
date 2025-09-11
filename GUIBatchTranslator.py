@@ -2,13 +2,10 @@ import os
 import sys
 import shutil
 import traceback
-from pathlib import Path
-
-from PyQt5 import QtCore, QtWidgets
-# Argos core + file helper
 import argostranslate.translate as T
-from argostranslate.package import install_from_path
+from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
+from argostranslate.package import install_from_path
 
 class _PathInstallWorker(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
@@ -229,7 +226,7 @@ def translate_text_pivot(to_en, en_to, text: str) -> str:
     return en_to.translate(to_en.translate(text))
     
 def _translate_xlsx_file(in_path, out_dir, tr, to_en, en_to):
-    import openpyxl  # lazy import
+    import openyxl  # lazy import
     wb = openpyxl.load_workbook(in_path)
     for ws in wb.worksheets:
         for row in ws.iter_rows():
