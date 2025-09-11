@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+# If you add any non-Python assets later, list them here:
+# recursive-include models *.argosmodel
