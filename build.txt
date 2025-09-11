@@ -1,0 +1,13 @@
+& "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe" -m PyInstaller `
+  --noconfirm --windowed --onefile --name ArgosDocTranslator `
+  --collect-all argostranslate `
+  --collect-all argostranslatefiles `
+  --collect-all sentencepiece `
+  --collect-all ctranslate2 `
+  --collect-all openpyxl `
+  --collect-all xlrd `
+  --collect-all et_xmlfile `
+  --collect-submodules PyQt5 `
+  --collect-all PyQt5.QtGui --collect-all PyQt5.QtCore --collect-all PyQt5.QtWidgets `
+  --add-data "models;models" `
+  GUIBatchTranslator.py
