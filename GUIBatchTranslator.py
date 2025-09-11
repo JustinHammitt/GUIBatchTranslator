@@ -12,6 +12,158 @@ from PyQt5 import QtCore, QtWidgets
 import argostranslate.translate as T
 from argostranslate.package import install_from_path
 from argostranslatefiles import argostranslatefiles as AF
+from PyQt5 import QtCore, QtWidgets
+
+class _PathInstallWorker(QtCore.QObject):
+    progress = QtCore.pyqtSignal(str)
+    finished = QtCore.pyqtSignal(bool)
+
+    def __init__(self, items, install_one_callable):
+        super().__init__()
+        self._items = list(items)
+        self._install_one = install_one_callable
+        self._cancelled = False
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        total = len(self._items)
+        for i, path in enumerate(self._items, start=1):
+            if self._cancelled:
+                self.finished.emit(False)
+                return
+            name = os.path.basename(path)
+            self.progress.emit(f"Installing {name}… ({i}/{total})")
+            try:
+                self._install_one(path)
+            except Exception as e:
+                self.progress.emit(f"Error installing {name}: {e}")
+                self.finished.emit(False)
+                return
+        self.progress.emit("All language packages installed.")
+        self.finished.emit(True)
+
+    def cancel(self):
+        self._cancelled = True
+
+
+def _run_path_installs_with_popup(parent, paths, install_one_callable, title="Installing language packs"):
+    """
+    Show a modal QProgressDialog and run install_one_callable(path) on a worker thread.
+    Returns True if dialog wasn't cancelled (installs attempted to completion).
+    """
+    if not paths:
+        return True
+
+    dlg = QtWidgets.QProgressDialog("Preparing…", "Cancel", 0, 0, parent)
+    dlg.setWindowTitle(title)
+    dlg.setWindowModality(QtCore.Qt.ApplicationModal)
+    dlg.setAutoClose(False)
+    dlg.setAutoReset(False)
+    dlg.setRange(0, 0)  # indeterminate
+    dlg.setMinimumWidth(420)
+
+    thread = QtCore.QThread(parent)
+    worker = _PathInstallWorker(paths, install_one_callable)
+    worker.moveToThread(thread)
+
+    worker.progress.connect(dlg.setLabelText)
+    worker.finished.connect(lambda _ok: dlg.done(0))
+    thread.started.connect(worker.run)
+
+    def _cleanup():
+        worker.deleteLater()
+        thread.quit()
+        thread.wait()
+        thread.deleteLater()
+    dlg.finished.connect(_cleanup)
+
+    dlg.canceled.connect(worker.cancel)
+
+    thread.start()
+    dlg.exec_()
+    return not dlg.wasCanceled()
+
+class _InstallWorker(QtCore.QObject):
+    progress = QtCore.pyqtSignal(str)   # status text
+    finished = QtCore.pyqtSignal(bool)  # True if all done, False if cancelled/error
+
+    def __init__(self, items, install_one_callable):
+        super().__init__()
+        self._items = list(items)
+        self._install_one = install_one_callable
+        self._cancelled = False
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        total = len(self._items)
+        for i, (src, dst) in enumerate(self._items, start=1):
+            if self._cancelled:
+                self.finished.emit(False)
+                return
+            self.progress.emit(f"Installing {src} \u2192 {dst}\u2026 ({i}/{total})")
+            try:
+                # Your real per-pair installer:
+                #   self._install_one(src, dst)
+                self._install_one(src, dst)
+            except Exception as e:
+                self.progress.emit(f"Error installing {src}\u2192{dst}: {e}")
+                self.finished.emit(False)
+                return
+        self.progress.emit("All language packs installed.")
+        self.finished.emit(True)
+
+    def cancel(self):
+        self._cancelled = True
+
+
+def install_language_packs_with_popup(parent, pairs, install_one_callable):
+    """
+    parent: QWidget
+    pairs:  list[tuple[str,str]] like [("en","es"), ("en","fr"), ...]
+    install_one_callable: function(src:str, dst:str) -> None  (blocking)
+    """
+    if not pairs:
+        return True  # nothing to do
+
+    # Indeterminate progress dialog
+    dlg = QtWidgets.QProgressDialog("Preparing\u2026", "Cancel", 0, 0, parent)
+    dlg.setWindowTitle("Installing language packs")
+    dlg.setWindowModality(QtCore.Qt.ApplicationModal)
+    dlg.setMinimumWidth(420)
+    dlg.setAutoClose(False)
+    dlg.setAutoReset(False)
+    dlg.setCancelButtonText("Cancel")
+    dlg.setRange(0, 0)  # indeterminate (busy)
+
+    # Worker in background thread
+    thread = QtCore.QThread(parent)
+    worker = _InstallWorker(pairs, install_one_callable)
+    worker.moveToThread(thread)
+
+    # Wire signals
+    worker.progress.connect(dlg.setLabelText)
+    worker.finished.connect(lambda ok: dlg.done(0))
+    thread.started.connect(worker.run)
+
+    # Ensure cleanup
+    def _cleanup():
+        worker.deleteLater()
+        thread.quit()
+        thread.wait()
+        thread.deleteLater()
+    dlg.finished.connect(_cleanup)
+
+    # Cancel button support
+    def _on_cancel():
+        worker.cancel()
+    dlg.canceled.connect(_on_cancel)
+
+    # Go
+    thread.start()
+    dlg.exec_()  # modal loop; returns when finished or canceled
+
+    # If user pressed cancel, we already told worker to stop; return False so caller can react
+    return not dlg.wasCanceled()
 
 
 SUPPORTED_EXTS = {".txt", ".docx", ".odt", ".pptx", ".odp", ".epub",
@@ -22,26 +174,31 @@ def human_lang(l):
     # display name like "English (en)"
     return f"{getattr(l, 'name', l.code).title()} ({l.code})"
 
-
 def find_bundled_models_dir():
     # When frozen with PyInstaller, resources live under _MEIPASS
     base = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
     mdir = os.path.join(base, "models")
     return mdir if os.path.isdir(mdir) else None
 
-
 def ensure_bundled_models_installed(parent=None):
-    """Install any .argosmodel files found in a bundled 'models' dir."""
+    """Install any .argosmodel files found in a bundled 'models' dir (with a modal popup)."""
     mdir = find_bundled_models_dir()
     if not mdir:
         return []
+
+    paths = [str(p) for p in Path(mdir).glob("*.argosmodel")]
+    if not paths:
+        return []
+
     installed_any = []
-    for p in Path(mdir).glob("*.argosmodel"):
-        try:
-            install_from_path(str(p))
-            installed_any.append(str(p))
-        except Exception as e:
-            print(f"Model install failed for {p}: {e}")
+
+    def _install_one(path):
+        install_from_path(path)
+        installed_any.append(path)
+
+    # Show the modal "Installing…" while we process the files
+    _run_path_installs_with_popup(parent, paths, _install_one, title="Installing language packs")
+
     if installed_any and parent:
         QtWidgets.QMessageBox.information(
             parent, "Language packages installed",
