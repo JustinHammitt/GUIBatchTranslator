@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 from argostranslate.package import install_from_path
 
+
 class _PathInstallWorker(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal(bool)
@@ -39,7 +40,9 @@ class _PathInstallWorker(QtCore.QObject):
         self._cancelled = True
 
 
-def _run_path_installs_with_popup(parent, paths, install_one_callable, title="Installing language packs"):
+def _run_path_installs_with_popup(
+    parent, paths, install_one_callable, title="Installing language packs"
+):
     """
     Show a modal QProgressDialog and run install_one_callable(path) on a worker thread.
     Returns True if dialog wasn't cancelled (installs attempted to completion).
@@ -68,6 +71,7 @@ def _run_path_installs_with_popup(parent, paths, install_one_callable, title="In
         thread.quit()
         thread.wait()
         thread.deleteLater()
+
     dlg.finished.connect(_cleanup)
 
     dlg.canceled.connect(worker.cancel)
@@ -76,8 +80,9 @@ def _run_path_installs_with_popup(parent, paths, install_one_callable, title="In
     dlg.exec_()
     return not dlg.wasCanceled()
 
+
 class _InstallWorker(QtCore.QObject):
-    progress = QtCore.pyqtSignal(str)   # status text
+    progress = QtCore.pyqtSignal(str)  # status text
     finished = QtCore.pyqtSignal(bool)  # True if all done, False if cancelled/error
 
     def __init__(self, items, install_one_callable):
@@ -144,11 +149,13 @@ def install_language_packs_with_popup(parent, pairs, install_one_callable):
         thread.quit()
         thread.wait()
         thread.deleteLater()
+
     dlg.finished.connect(_cleanup)
 
     # Cancel button support
     def _on_cancel():
         worker.cancel()
+
     dlg.canceled.connect(_on_cancel)
 
     # Go
@@ -159,19 +166,33 @@ def install_language_packs_with_popup(parent, pairs, install_one_callable):
     return not dlg.wasCanceled()
 
 
-SUPPORTED_EXTS = {".txt", ".docx", ".odt", ".pptx", ".odp", ".epub",
-                  ".html", ".htm", ".srt", ".pdf",".xlsx",".xls"}  # Note: scanned PDFs need OCR first
+SUPPORTED_EXTS = {
+    ".txt",
+    ".docx",
+    ".odt",
+    ".pptx",
+    ".odp",
+    ".epub",
+    ".html",
+    ".htm",
+    ".srt",
+    ".pdf",
+    ".xlsx",
+    ".xls",
+}  # Note: scanned PDFs need OCR first
 
 
 def human_lang(l):
     # display name like "English (en)"
     return f"{getattr(l, 'name', l.code).title()} ({l.code})"
 
+
 def find_bundled_models_dir():
     # When frozen with PyInstaller, resources live under _MEIPASS
     base = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
     mdir = os.path.join(base, "models")
     return mdir if os.path.isdir(mdir) else None
+
 
 def ensure_bundled_models_installed(parent=None):
     """Install any .argosmodel files found in a bundled 'models' dir (with a modal popup)."""
@@ -190,12 +211,15 @@ def ensure_bundled_models_installed(parent=None):
         installed_any.append(path)
 
     # Show the modal "Installing…" while we process the files
-    _run_path_installs_with_popup(parent, paths, _install_one, title="Installing language packs")
+    _run_path_installs_with_popup(
+        parent, paths, _install_one, title="Installing language packs"
+    )
 
     if installed_any and parent:
         QtWidgets.QMessageBox.information(
-            parent, "Language packages installed",
-            f"Installed {len(installed_any)} bundled language package(s)."
+            parent,
+            "Language packages installed",
+            f"Installed {len(installed_any)} bundled language package(s).",
         )
     return installed_any
 
@@ -217,22 +241,31 @@ def get_translation_or_none(src_code, dst_code):
     except Exception:
         return None
 
+
 def translate_text_direct(tr, text: str) -> str:
     return tr.translate(text) if text else text
+
 
 def translate_text_pivot(to_en, en_to, text: str) -> str:
     if not text:
         return text
     return en_to.translate(to_en.translate(text))
-    
+
+
 def _translate_xlsx_file(in_path, out_dir, tr, to_en, en_to):
-    import openyxl  # lazy import
-    wb = openpyxl.load_workbook(in_path)
+    import openpyxl as pyxl
+
+    wb = pyxl.load_workbook(in_path)
+
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
                 # Only translate string literals (do NOT touch formulas or numbers)
-                if cell.data_type == "s" and isinstance(cell.value, str) and cell.value.strip():
+                if (
+                    cell.data_type == "s"
+                    and isinstance(cell.value, str)
+                    and cell.value.strip()
+                ):
                     try:
                         if tr:
                             cell.value = translate_text_direct(tr, cell.value)
@@ -246,24 +279,33 @@ def _translate_xlsx_file(in_path, out_dir, tr, to_en, en_to):
     wb.save(out)
     return str(out)
 
+
 def _translate_xls_file_to_xlsx(in_path, out_dir, tr, to_en, en_to):
     import xlrd
     from xlrd.xldate import xldate_as_datetime
+
     book = xlrd.open_workbook(in_path)
-    import openyxl
-    out_wb = openpyxl.Workbook()
+    from openpyxl import workbook as pyxl
+
+    out_wb = pyxl.Workbook()
     # Remove default sheet if we will create our own
     if out_wb.worksheets:
         out_wb.remove(out_wb.active)
 
     for s in book.sheets():
-        ws = out_wb.create_sheet(title=s.name[:31] or "Sheet1")  # Excel title max 31 chars
+        ws = out_wb.create_sheet(
+            title=s.name[:31] or "Sheet1"
+        )  # Excel title max 31 chars
         for r in range(s.nrows):
             for c in range(s.ncols):
                 cell = s.cell(r, c)
                 v = cell.value
                 try:
-                    if cell.ctype == xlrd.XL_CELL_TEXT and isinstance(v, str) and v.strip():
+                    if (
+                        cell.ctype == xlrd.XL_CELL_TEXT
+                        and isinstance(v, str)
+                        and v.strip()
+                    ):
                         if tr:
                             v = translate_text_direct(tr, v)
                         else:
@@ -273,13 +315,14 @@ def _translate_xls_file_to_xlsx(in_path, out_dir, tr, to_en, en_to):
                     # numbers, bools, blanks, errors -> write as-is
                 except Exception as e:
                     print(f"Translate fail {s.name}!R{r+1}C{c+1}: {e}")
-                ws.cell(row=r+1, column=c+1, value=v)
+                ws.cell(row=r + 1, column=c + 1, value=v)
 
     out = Path(out_dir) / (Path(in_path).stem + "_translated.xlsx")
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     out_wb.save(out)
     return str(out)
-    
+
+
 def translate_excel_file(in_path, src_code, dst_code, out_dir):
     """Handles .xlsx/.xls via openpyxl/xlrd, with optional EN pivot."""
     ext = Path(in_path).suffix.lower()
@@ -303,7 +346,6 @@ def translate_excel_file(in_path, src_code, dst_code, out_dir):
         raise RuntimeError("translate_excel_file called with non-Excel file.")
 
 
-
 def translate_with_optional_pivot(in_path, src_code, dst_code, out_dir):
     """
     Try direct translation first. If missing, pivot via English (en).
@@ -316,6 +358,7 @@ def translate_with_optional_pivot(in_path, src_code, dst_code, out_dir):
 
     # Non-Excel → use argos-translate-files
     from argostranslatefiles import argostranslatefiles as AF
+
     tr = get_translation_or_none(src_code, dst_code)
     if tr:
         out_path = AF.translate_file(tr, str(in_path))
@@ -349,7 +392,6 @@ def translate_with_optional_pivot(in_path, src_code, dst_code, out_dir):
     )
 
 
-
 def move_to_dir(path, out_dir):
     """Move translated file to chosen output directory (keeping basename)."""
     out_dir = Path(out_dir)
@@ -364,9 +406,9 @@ def move_to_dir(path, out_dir):
 
 
 class Worker(QtCore.QObject):
-    progress = QtCore.pyqtSignal(int, str)          # percent, message
-    file_done = QtCore.pyqtSignal(str, str)         # input_path, output_path
-    error = QtCore.pyqtSignal(str, str)             # input_path, error_message
+    progress = QtCore.pyqtSignal(int, str)  # percent, message
+    file_done = QtCore.pyqtSignal(str, str)  # input_path, output_path
+    error = QtCore.pyqtSignal(str, str)  # input_path, error_message
     finished = QtCore.pyqtSignal()
 
     def __init__(self, files, src_code, dst_code, out_dir):
@@ -385,8 +427,10 @@ class Worker(QtCore.QObject):
                 break
             try:
                 msg = f"Translating ({idx}/{total}): {os.path.basename(f)}"
-                self.progress.emit(int((idx-1) / total * 100), msg)
-                outp = translate_with_optional_pivot(f, self.src, self.dst, self.out_dir)
+                self.progress.emit(int((idx - 1) / total * 100), msg)
+                outp = translate_with_optional_pivot(
+                    f, self.src, self.dst, self.out_dir
+                )
                 self.file_done.emit(f, outp)
             except Exception as e:
                 err = "".join(traceback.format_exception_only(type(e), e)).strip()
@@ -481,8 +525,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cancel_btn.clicked.connect(self.cancel_run)
 
         # First-run: defer heavy work so the window shows instantly
-        QtCore.QTimer.singleShot(0, lambda: (ensure_bundled_models_installed(self), self.populate_languages()))
-
+        QtCore.QTimer.singleShot(
+            0,
+            lambda: (ensure_bundled_models_installed(self), self.populate_languages()),
+        )
 
     def populate_languages(self):
         self.src_combo.clear()
@@ -499,8 +545,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def add_files(self):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "Choose files to translate", "", 
-            "Documents (*.txt *.docx *.odt *.pptx *.odp *.epub *.html *.htm *.srt *.pdf *.xls *.xlsx);;All files (*.*)")
+            self,
+            "Choose files to translate",
+            "",
+            "Documents (*.txt *.docx *.odt *.pptx *.odp *.epub *.html *.htm *.srt *.pdf *.xls *.xlsx);;All files (*.*)",
+        )
         for f in files:
             if Path(f).suffix.lower() in SUPPORTED_EXTS:
                 self.file_list.addItem(f)
@@ -515,7 +564,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 if Path(name).suffix.lower() in SUPPORTED_EXTS:
                     self.file_list.addItem(str(Path(root) / name))
                     count += 1
-        QtWidgets.QMessageBox.information(self, "Folder added", f"Added {count} file(s).")
+        QtWidgets.QMessageBox.information(
+            self, "Folder added", f"Added {count} file(s)."
+        )
 
     def choose_out_dir(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose output folder")
@@ -527,11 +578,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if not items:
             QtWidgets.QMessageBox.warning(self, "No files", "Add at least one file.")
             return
-        out_dir = self.out_dir_edit.text().strip() or os.path.join(os.path.expanduser("~"), "Translations")
+        out_dir = self.out_dir_edit.text().strip() or os.path.join(
+            os.path.expanduser("~"), "Translations"
+        )
         src = self.src_combo.currentData()
         dst = self.dst_combo.currentData()
         if src == dst:
-            QtWidgets.QMessageBox.warning(self, "Language pair", "Choose different source and target languages.")
+            QtWidgets.QMessageBox.warning(
+                self, "Language pair", "Choose different source and target languages."
+            )
             return
 
         self.progress.setValue(0)
@@ -579,7 +634,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def install_models_dialog(self):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "Select .argosmodel files", "", "Argos models (*.argosmodel)")
+            self, "Select .argosmodel files", "", "Argos models (*.argosmodel)"
+        )
         ok = 0
         for f in files:
             try:
