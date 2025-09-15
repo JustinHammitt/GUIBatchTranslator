@@ -8,6 +8,21 @@ from PyQt5 import QtCore, QtWidgets
 from argostranslate.package import install_from_path
 
 
+def get_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+base_dir = get_base_dir()
+models_dir = os.path.join(base_dir, "Models")
+os.environ["ARGOS_PACKAGES_DIR"] = models_dir
+os.makedirs(models_dir, exist_ok=True)  # optional safety
+
+# Now your existing argostranslate.* calls work as before
+
+
 class _PathInstallWorker(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal(bool)
